@@ -53,7 +53,7 @@ namespace JFICompiler
             char NewChar = Input[Index];
             string Buffer = SB.ToString();
 
-            if(((NewChar == '=' && Buffer[0] != '=' && Buffer[0] != '<' && Buffer[0] != '>') || NewChar == ')' || NewChar == ';' || NewChar == '>' || NewChar == '<') && Buffer.Length > 0)
+            if(Buffer.Length > 0 && ((NewChar == '=' && Buffer[0] != '=' && Buffer[0] != '<' && Buffer[0] != '>' && Buffer[0] != '+' && Buffer[0] != '-') || NewChar == ')' || NewChar == ';' || NewChar == '>' || NewChar == '<' || NewChar == '+' || NewChar == '-'))
             {
                 if (ParsingConstant || Buffer == "true" || Buffer == "false")
                 {
@@ -86,7 +86,7 @@ namespace JFICompiler
             SB.Append(NewChar);
             Buffer = SB.ToString();
 
-            if (Buffer == "if" || Buffer == "while" || Buffer == "print" || Buffer == "read")
+            if (Buffer == "if" || Buffer == "while" || Buffer == "print" || Buffer == "read" || Buffer == "return")
             {
                 Tokens.Add(new Token(TokenType.KEYWORD, Buffer));
             }
@@ -98,11 +98,7 @@ namespace JFICompiler
             {
                 Tokens.Add(new Token(TokenType.SYMBOL, Buffer));
             }
-            else if (Buffer == "+" || Buffer == "-" || Buffer == "*" || Buffer == "/" || Buffer == "^" || Buffer == "==" || Buffer == "&&" || Buffer == "||" || Buffer == "<=" || Buffer == ">=")
-            {
-                Tokens.Add(new Token(TokenType.OPERATOR, Buffer));
-            }
-            else if (Buffer == "=" || Buffer == "<" || Buffer == ">")
+            else if (Buffer == "=" || Buffer == "<" || Buffer == ">" || Buffer == "+" || Buffer == "-")
             {
                 char NextChar = Input[Index + 1];
                 if (NextChar == '=' || NextChar == '<' || NextChar == '>')
@@ -113,6 +109,10 @@ namespace JFICompiler
                 {
                     Tokens.Add(new Token(TokenType.OPERATOR, Buffer));
                 }
+            }
+            else if (Buffer == "+" || Buffer == "-" || Buffer == "*" || Buffer == "/" || Buffer == "^" || Buffer == "==" || Buffer == "+=" || Buffer == "-=" || Buffer == "&&" || Buffer == "||" || Buffer == "<=" || Buffer == ">=")
+            {
+                Tokens.Add(new Token(TokenType.OPERATOR, Buffer));
             }
             else
             {

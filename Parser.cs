@@ -49,10 +49,11 @@ namespace JFICompiler
     public class Block
     {
         private List<Block> ChildBlocks;
-        protected Block ParentBlock;
+        public Block ParentBlock;
         public Parser Parser;
         public int BlockOffset;
         private int CurrentOffset;
+        public string EndLabel;
 
         private Queue<Statement> Statements;
         private Token[] BlockTokens;
@@ -76,6 +77,7 @@ namespace JFICompiler
             BlockOffset = 0;
             CurrentOffset = 0;
             IntegerVariables = new Dictionary<string, int>();
+            EndLabel = Parser.NewLabel("BLOCK");
 
             while (Index < BlockTokens.Length)
             {
@@ -118,11 +120,35 @@ namespace JFICompiler
                         {
                             case "IF":
                                 {
-                                    int Value1 = int.Parse(BlockTokens[Index + 2].Body);
-                                    int Value2 = int.Parse(BlockTokens[Index + 4].Body);
+                                    Token Value1 = BlockTokens[Index + 2];
+                                    string Operator = BlockTokens[Index + 3].Body;
+                                    Token Value2 = BlockTokens[Index + 4];
                                     Index += 6;
                                     Block SuccessBlock = GetBlock();
-                                    Statements.Enqueue(new IfStatement(this, Value1, Value2, SuccessBlock, null));
+                                    Statements.Enqueue(new IfStatement(this, Value1, Value2, Operator, SuccessBlock, null));
+                                    break;
+                                }
+                            case "WHILE":
+                                {
+                                    Token Value1 = BlockTokens[Index + 2];
+                                    string Operator = BlockTokens[Index + 3].Body;
+                                    Token Value2 = BlockTokens[Index + 4];
+                                    Index += 6;
+                                    Block LoopBlock = GetBlock();
+                                    Statements.Enqueue(new WhileStatement(this, Value1, Value2, Operator, LoopBlock));
+                                    break;
+                                }
+                            case "PRINT":
+                                {
+                                    Token Value = BlockTokens[Index + 2];
+                                    Index += 5;
+                                    Statements.Enqueue(new PrintStatement(this, Value));
+                                    break;
+                                }
+                            case "RETURN":
+                                {
+                                    Index += 2;
+                                    Statements.Enqueue(new ReturnStatement(this));
                                     break;
                                 }
                             default: { throw new Exception("Invalid Keyword!"); }
@@ -134,8 +160,20 @@ namespace JFICompiler
                         string Identifier = BlockTokens[Index].Body;
                         if(BlockTokens[Index + 1].Type == TokenType.OPERATOR && BlockTokens[Index + 1].Body == "=")
                         {
-                            int Value = int.Parse(BlockTokens[Index + 2].Body);
+                            Token Value = BlockTokens[Index + 2];
                             Statements.Enqueue(new AssignStatement(this, Identifier, Value));
+                            Index += 4;
+                        }
+                        else if (BlockTokens[Index + 1].Type == TokenType.OPERATOR && BlockTokens[Index + 1].Body == "+=")
+                        {
+                            Token Value = BlockTokens[Index + 2];
+                            Statements.Enqueue(new IncrementStatement(this, Identifier, Value));
+                            Index += 4;
+                        }
+                        else if (BlockTokens[Index + 1].Type == TokenType.OPERATOR && BlockTokens[Index + 1].Body == "-=")
+                        {
+                            Token Value = BlockTokens[Index + 2];
+                            Statements.Enqueue(new DecrementStatement(this, Identifier, Value));
                             Index += 4;
                         }
                         break;
@@ -147,11 +185,7 @@ namespace JFICompiler
                             case "INT":
                                 {
                                     string Identifier = BlockTokens[Index + 1].Body;
-                                    int Value = 0;
-                                    if(BlockTokens[Index + 3].Type == TokenType.CONSTANT)
-                                    {
-                                        Value = int.Parse(BlockTokens[Index + 3].Body);
-                                    }
+                                    Token Value = BlockTokens[Index + 3];
                                     DeclareVariable(Identifier);
                                     Statements.Enqueue(new AssignStatement(this, Identifier, Value));
                                     Index += 5;
@@ -282,6 +316,8 @@ namespace JFICompiler
                 Output += "\n";
             }
 
+            Output += EndLabel + ":";
+            Output += "\n";
             Output += "ADDI $sp, $sp, " + -BlockOffset;
             Output += "\n";
 
@@ -318,14 +354,147 @@ namespace JFICompiler
         {
             return String.Empty;
         }
+
+        protected string GetBranchCommand(string Operator)
+        {
+            switch (Operator)
+            {
+                case "==": { return "BEQ"; }
+                case "!=": { return "BNQ"; }
+                case ">": { return "BGT"; }
+                case ">=": { return "BGE"; }
+                case "<": { return "BLT"; }
+                case "<=": { return "BLE"; }
+                default: { throw new Exception("Invalid Operator"); }
+            }
+        }
+
+        protected string GetVariableOrConstant(Token T, string Register)
+        {
+            string Output = String.Empty;
+            if (T.Type == TokenType.CONSTANT)
+            {
+                Output += "LI " + Register + ", " + T.Body;
+            }
+            else if (T.Type == TokenType.IDENTIFIER)
+            {
+                int Offset = CurrentBlock.GetVariableOffset(T.Body);
+                Output += "LW " + Register + ", " + Offset + "($sp)";
+            }
+            else if(T.Type == TokenType.KEYWORD && T.Body.ToUpper() == "READ")
+            {
+                Output += "LI $v0, 5";
+                Output += "\n";
+                Output += "SYSCALL";
+                Output += "\n";
+                Output += "MOVE " + Register + ", $v0";
+            }
+            else
+            {
+                throw new Exception("Invalid Argument");
+            }
+            return Output;
+        }
+    }
+
+    public class IncrementStatement : Statement
+    {
+        string Identifier;
+        Token Value;
+
+        public IncrementStatement(Block _CurrentBlock, string _Identifier, Token _Value) : base(_CurrentBlock)
+        {
+            Identifier = _Identifier;
+            Value = _Value;
+        }
+
+        public override string GenerateCode()
+        {
+            string Output = String.Empty;
+            int Offset = CurrentBlock.GetVariableOffset(Identifier);
+            Output += "LW $t0, " + Offset + "($sp)";
+            Output += "\n";
+            Output += GetVariableOrConstant(Value, "$t1");
+            Output += "\n";
+            Output += "ADD $t0, $t0, $t1";
+            Output += "\n";
+            Output += "SW $t0, " + Offset + "($sp)";
+            return Output;
+        }
+    }
+
+    public class DecrementStatement : Statement
+    {
+        string Identifier;
+        Token Value;
+
+        public DecrementStatement(Block _CurrentBlock, string _Identifier, Token _Value) : base(_CurrentBlock)
+        {
+            Identifier = _Identifier;
+            Value = _Value;
+        }
+
+        public override string GenerateCode()
+        {
+            string Output = String.Empty;
+            int Offset = CurrentBlock.GetVariableOffset(Identifier);
+            Output += "LW $t0, " + Offset + "($sp)";
+            Output += "\n";
+            Output += GetVariableOrConstant(Value, "$t1");
+            Output += "\n";
+            Output += "SUB $t0, $t0, $t1";
+            Output += "\n";
+            Output += "SW $t0, " + Offset + "($sp)";
+            return Output;
+        }
+    }
+
+    public class ReturnStatement : Statement
+    {
+
+        public ReturnStatement(Block _CurrentBlock) : base(_CurrentBlock)
+        {
+
+        }
+
+        public override string GenerateCode()
+        {
+            string Output = String.Empty;
+            Output += "ADDI $sp, $sp, " + -CurrentBlock.BlockOffset;
+            Output += "\n";
+            Output += "J " + CurrentBlock.ParentBlock.EndLabel;
+            Output += "\n";
+            return Output;
+        }
+    }
+
+    public class PrintStatement : Statement
+    {
+        Token Value;
+
+        public PrintStatement(Block _CurrentBlock, Token _Value) : base(_CurrentBlock)
+        {
+            Value = _Value;
+        }
+
+        public override string GenerateCode()
+        {
+            string Output = String.Empty;
+            Output += GetVariableOrConstant(Value, "$a0");
+            Output += "\n";
+            Output += "LI $v0, 1";
+            Output += "\n";
+            Output += "SYSCALL";
+            return Output;
+        }
     }
 
     public class AssignStatement : Statement
     {
         string Identifier;
-        int Value;
+        Token Value;
 
-        public AssignStatement(Block _CurrentBlock, string _Identifier, int _Value) : base(_CurrentBlock)
+        public AssignStatement(Block _CurrentBlock, string _Identifier, Token _Value) : base(_CurrentBlock)
         {
             Identifier = _Identifier;
             Value = _Value;
@@ -336,26 +505,28 @@ namespace JFICompiler
             string Output = String.Empty;
             int Offset = CurrentBlock.GetVariableOffset(Identifier);
 
-            Output += "LI $t1, " + Value;
+            Output += GetVariableOrConstant(Value, "$t0");
             Output += "\n";
-            Output += "SW $t1, " + Offset + "($sp)";
+            Output += "SW $t0, " + Offset + "($sp)";
             return Output;
         }
     }
 
     public class IfStatement : Statement
     {
-        int Value1;
-        int Value2;
+        Token Value1;
+        Token Value2;
         Block SuccessBlock;
         Block FailBlock;
+        string Operator;
 
-        public IfStatement(Block _CurrentBlock, int _Value1, int _Value2, Block _SuccessBlock, Block _FailBlock) : base(_CurrentBlock)
+        public IfStatement(Block _CurrentBlock, Token _Value1, Token _Value2, string _Operator, Block _SuccessBlock, Block _FailBlock) : base(_CurrentBlock)
         {
             Value1 = _Value1;
             Value2 = _Value2;
             SuccessBlock = _SuccessBlock;
             FailBlock = _FailBlock;
+            Operator = _Operator;
         }
 
         public override string GenerateCode()
@@ -365,18 +536,18 @@ namespace JFICompiler
             string EndLabel = CurrentBlock.Parser.NewLabel("IF");
 
             string Output = String.Empty;
-            Output += "LI $t1, " + Value1;
+            Output += GetVariableOrConstant(Value1, "$t1");
             Output += "\n";
-            Output += "LI $t2, " + Value2;
+            Output += GetVariableOrConstant(Value2, "$t2");
             Output += "\n";
-            Output += "BEQ $t1, $t2, " + SuccessLabel;
+            Output += GetBranchCommand(Operator) + " $t1, $t2, " + SuccessLabel;
             Output += "\n";
 
             if (FailBlock != null)
             {
                 Output += FailBlock.GenerateCode();
                 Output += "\n";
-                
+
             }
             Output += "J " + EndLabel;
             Output += "\n";
@@ -384,6 +555,49 @@ namespace JFICompiler
             Output += SuccessLabel + ":";
             Output += "\n";
             Output += SuccessBlock.GenerateCode();
+            Output += "\n";
+            Output += EndLabel + ":";
+            return Output;
+        }
+    }
+
+    public class WhileStatement : Statement
+    {
+        Token Value1;
+        Token Value2;
+        Block LoopBlock;
+        string Operator;
+
+        public WhileStatement(Block _CurrentBlock, Token _Value1, Token _Value2, string _Operator, Block _LoopBlock) : base(_CurrentBlock)
+        {
+            Value1 = _Value1;
+            Value2 = _Value2;
+            Operator = _Operator;
+            LoopBlock = _LoopBlock;
+        }
+
+        public override string GenerateCode()
+        {
+            string StartLabel = CurrentBlock.Parser.NewLabel("WHILE");
+            string BodyLabel = CurrentBlock.Parser.NewLabel("WHILE");
+            string EndLabel = CurrentBlock.Parser.NewLabel("WHILE");
+
+            string Output = String.Empty;
+            Output += StartLabel + ":";
+            Output += "\n";
+            Output += GetVariableOrConstant(Value1, "$t1");
+            Output += "\n";
+            Output += GetVariableOrConstant(Value2, "$t2");
+            Output += "\n";
+            Output += GetBranchCommand(Operator) + " $t1, $t2, " + BodyLabel;
+            Output += "\n";
+            Output += "J " + EndLabel;
+            Output += "\n";
+            Output += BodyLabel + ":";
+            Output += "\n";
+            Output += LoopBlock.GenerateCode();
+            Output += "\n";
+            Output += "J " + StartLabel;
             Output += "\n";
             Output += EndLabel + ":";
             return Output;

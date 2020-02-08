@@ -13,25 +13,55 @@ namespace JFICompiler
 
         private static void Main(string[] Args)
         {
-            if (!ReadFile(Args[0]))
+            try
             {
-                Console.WriteLine("The input file could not be read.");
-                return;
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("> COMPILING");
+                Console.ForegroundColor = ConsoleColor.White;
+
+                Console.WriteLine("- Reader");
+                if (!ReadFile(Args[0]))
+                {
+                    Console.WriteLine("The input file could not be read.");
+                    return;
+                }
+
+                Console.WriteLine("- Tokenizer");
+                Tokenizer Tokenizer = new Tokenizer(Input);
+                Token[] Tokens = Tokenizer.Run();
+
+                /*
+                foreach (Token T in Tokens)
+                {
+                    Console.WriteLine(T.Type + " " + T.Body);
+                }
+                */
+
+                Console.WriteLine("- Parser");
+                Parser Parser = new Parser(Tokens);
+                Block MainBlock = Parser.Run();
+
+                Console.WriteLine("- Generator");
+                Generator Generator = new Generator(MainBlock);
+                string Output = Generator.Run();
+
+                Console.WriteLine("- Writer");
+                if (!WriteFile(Args[1], Output))
+                {
+                    Console.WriteLine("The output file could not be written.");
+                    return;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("> DONE");
+                Console.ForegroundColor = ConsoleColor.White;
             }
-
-            Tokenizer Tokenizer = new Tokenizer(Input);
-            Token[] Tokens = Tokenizer.Run();
-
-            Parser Parser = new Parser(Tokens);
-            Block MainBlock = Parser.Run();
-
-            Generator Generator = new Generator(MainBlock);
-            string Output = Generator.Run();
-
-            if(!WriteFile(Args[1], Output))
+            catch (Exception E)
             {
-                Console.WriteLine("The output file could not be written.");
-                return;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("> FAILED");
+                Console.WriteLine(E.Message);
+                Console.ForegroundColor = ConsoleColor.White;
             }
         }
         private static bool ReadFile(string Path)
